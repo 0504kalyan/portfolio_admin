@@ -106,7 +106,7 @@ const router = createBrowserRouter([
 ]);
 
 function Root() {
-  const [auth, setAuth] = useState<{ state: 'checking' } | { state: 'anon' } | { state: 'error' } | { state: 'authed'; username: string; sites: SiteInfo[] }>({
+  const [auth, setAuth] = useState<{ state: 'checking' } | { state: 'anon' } | { state: 'error'; message: string } | { state: 'authed'; username: string; sites: SiteInfo[] }>({
     state: 'checking',
   });
   const [expired, setExpired] = useState(false);
@@ -116,7 +116,9 @@ function Root() {
     api
       .session()
       .then((s) => setAuth(s.authenticated && s.username ? { state: 'authed', username: s.username, sites: s.sites } : { state: 'anon' }))
-      .catch(() => setAuth({ state: 'error' }));
+      .catch((err) =>
+        setAuth({ state: 'error', message: err instanceof ApiFailure ? err.message : "Couldn't reach the admin server. Check your connection and try again." }),
+      );
   }, []);
 
   useEffect(() => {
@@ -129,7 +131,7 @@ function Root() {
   }, []);
 
   if (auth.state === 'checking') return <Spinner label="Loading…" />;
-  if (auth.state === 'error') return <ErrorScreen message="Couldn't reach the admin server. Check your connection and try again." onRetry={check} />;
+  if (auth.state === 'error') return <ErrorScreen message={auth.message} onRetry={check} />;
   if (auth.state === 'anon') return <LoginScreen onSignedIn={check} />;
 
   return (

@@ -12,7 +12,10 @@ export interface SiteConfig {
   id: string;
   /** Display name, e.g. "Pavan Kalyan Kama". */
   name: string;
-  /** The live portfolio, e.g. https://portfolio-of-pavan.vercel.app */
+  /**
+   * The portfolio this admin talks to: the live one on Vercel (e.g. https://portfolio-of-pavan.vercel.app),
+   * or its local dev server (`localUrl`, e.g. http://localhost:5173) when running `npm run dev`.
+   */
   url: string;
   /** GitHub "owner/repo" holding the portfolio. */
   repo: string;
@@ -53,7 +56,7 @@ export function sites(): SiteConfig[] {
     const site: SiteConfig = {
       id: get('id'),
       name: get('name') || get('id'),
-      url: get('url').replace(/\/+$/, ''),
+      url: (onVercel() ? get('url') : get('localUrl') || get('url')).replace(/\/+$/, ''),
       repo: get('repo'),
       branch: get('branch') || 'main',
       contentPath: get('contentPath') || 'content/portfolio.json',
@@ -65,6 +68,9 @@ export function sites(): SiteConfig[] {
     };
     if (!SITE_ID.test(site.id)) bad(`site ${i}: id must be lowercase letters, numbers and hyphens`);
     if (!/^https?:\/\//.test(site.url)) bad(`site ${site.id}: url must start with https://`);
+    if (onVercel() && /^https?:\/\/(localhost|127\.0\.0\.1)/.test(site.url)) {
+      bad(`site ${site.id}: url points at localhost; use the live URL in "url" and put the local one in "localUrl"`);
+    }
     if (!useLocalStore() && !REPO.test(site.repo)) bad(`site ${site.id}: repo must look like "owner/name"`);
     return site;
   });
@@ -84,8 +90,11 @@ export function githubToken(site: SiteConfig): string {
 
 export const deployHookUrl = (site: SiteConfig) => (site.deployHookEnv ? env(site.deployHookEnv) : '');
 
+/** True in Vercel deployments (production and preview); false under `npm run dev`. */
+export const onVercel = () => Boolean(process.env.VERCEL);
+
 /** Local file storage is for `npm run dev` only and is refused on Vercel. */
-export const useLocalStore = () => env('CONTENT_STORE') === 'local' && !process.env.VERCEL;
+export const useLocalStore = () => env('CONTENT_STORE') === 'local' && !onVercel();
 
 export const localRoot = (site: SiteConfig) => {
   if (!site.localPath) throw new ApiError(503, 'not_configured', `Set "localPath" for ${site.name} in SITES to use local storage.`);

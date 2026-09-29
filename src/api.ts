@@ -64,7 +64,20 @@ async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, tim
     );
   }
   const data = await res.json().catch(() => null);
-  if (res.ok) return data as T;
+  if (res.ok && data !== null) return data as T;
+  if (data === null) {
+    // Not our JSON: the API function isn't deployed/routed, or something in front of it (e.g. Vercel
+    // Deployment Protection) answered instead.
+    throw new ApiFailure(
+      res.status,
+      'bad_response',
+      res.status === 404
+        ? 'The admin API was not found on this deployment (HTTP 404). Check that the Vercel project uses the "Other" framework preset and the build ran `npm run build`.'
+        : res.status === 401 || res.status === 403
+          ? `The admin API was blocked before reaching the server (HTTP ${res.status}). If Vercel Deployment Protection is on, turn it off for this project or open the production URL.`
+          : `The admin server sent an unexpected response (HTTP ${res.status}). Please try again.`,
+    );
+  }
   const error = data?.error;
   if (res.status === 401 && path !== 'login') onUnauthorized();
   throw new ApiFailure(
