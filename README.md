@@ -5,7 +5,7 @@ One admin app for several portfolios. It currently manages:
 | Portfolio | Live site | Repository |
 |---|---|---|
 | Pavan Kalyan Kama | <https://portfolio-of-pavan.vercel.app/> | `0504kalyan/PortFolio` |
-| Koteswara Rao Doppalapudi | *(his Vercel URL)* | `0504kalyan/koti_potifoli` |
+| Koteswara Rao Doppalapudi | <https://koti-potifoli.vercel.app/> | `0504kalyan/koti_potifoli` |
 
 The admin is its own app, repository and Vercel project. The portfolios contain no admin code and no secrets, and there is no database.
 
@@ -77,7 +77,7 @@ In `.env.local`, point each site's `url` at its local dev server (`http://localh
 ```json
 [
   { "id": "pavan", "name": "Pavan Kalyan Kama", "url": "https://portfolio-of-pavan.vercel.app", "repo": "0504kalyan/PortFolio" },
-  { "id": "koti", "name": "Koteswara Rao Doppalapudi", "url": "https://<koti-portfolio>.vercel.app", "repo": "0504kalyan/koti_potifoli" }
+  { "id": "koti", "name": "Koteswara Rao Doppalapudi", "url": "https://koti-potifoli.vercel.app", "repo": "0504kalyan/koti_potifoli" }
 ]
 ```
 
