@@ -3,7 +3,11 @@
 import path from 'node:path';
 import { ApiError } from './http.js';
 
-const env = (name: string) => process.env[name]?.trim() ?? '';
+/** Reads an env var, dropping quotes pasted from a .env file (e.g. '[...]' into the Vercel dashboard). */
+const env = (name: string) => {
+  const v = process.env[name]?.trim() ?? '';
+  return /^(['"]).*$/s.test(v) ? v.slice(1, -1).trim() : v;
+};
 
 /* ---------- Sites ---------- */
 
@@ -121,13 +125,13 @@ export function users(): UserConfig[] {
       /* fall through */
     }
     console.error('[api] ADMIN_USERS is invalid: expected [{"username","passwordHash","sites":[...]}]');
-    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured correctly on the server.');
+    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured correctly on the server: ADMIN_USERS is not a valid JSON list of users.');
   }
   const username = env('ADMIN_USERNAME');
   const passwordHash = env('ADMIN_PASSWORD_HASH');
   if (!username || !passwordHash) {
     console.error('[api] admin auth is not configured: set ADMIN_USERS, or ADMIN_USERNAME and ADMIN_PASSWORD_HASH');
-    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured on the server yet.');
+    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured on the server yet: set ADMIN_USERS in the environment variables and redeploy.');
   }
   return [{ username, passwordHash, sites: ['*'] }];
 }
@@ -136,7 +140,11 @@ export function sessionSecret(): string {
   const secret = env('SESSION_SECRET');
   if (secret.length < 32) {
     console.error('[api] SESSION_SECRET must be at least 32 characters');
-    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured on the server yet.');
+    throw new ApiError(
+      503,
+      'not_configured',
+      `Admin sign-in is not configured on the server yet: SESSION_SECRET is ${secret ? 'shorter than 32 characters' : 'not set'}. Set it in the environment variables and redeploy.`,
+    );
   }
   return secret;
 }
