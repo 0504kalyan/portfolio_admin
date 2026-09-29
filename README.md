@@ -48,7 +48,7 @@ npm run hash-password        # once per user; paste each hash into ADMIN_USERS, 
 npm run dev                  # http://localhost:5174
 ```
 
-In `.env.local`, point each site's `url` at its local dev server (`http://localhost:5173`, `http://localhost:5175`) and keep `CONTENT_STORE=local`. Saving then writes that portfolio's `content/portfolio.json` directly (via `localPath`), and its dev server reloads with the change. Version snapshots go to the portfolio's git-ignored `.cms/` folder. The portfolios' dev servers accept previews from `http://localhost:5174` automatically.
+In `.env.local`, keep `CONTENT_STORE=local`. Each site's `localUrl` (`http://localhost:5173`, `http://localhost:5175`) is used instead of `url` while running locally; on Vercel `localUrl` is ignored and the live `url` is used, so the same `SITES` value works in both places. Saving then writes that portfolio's `content/portfolio.json` directly (via `localPath`), and its dev server reloads with the change. Version snapshots go to the portfolio's git-ignored `.cms/` folder. The portfolios' dev servers accept previews from `http://localhost:5174` automatically.
 
 ## Deploying (one-time)
 
@@ -86,6 +86,7 @@ In `.env.local`, point each site's `url` at its local dev server (`http://localh
 | `id` | yes | Short key used in admin URLs (`/pavan/p/projects`) and in `ADMIN_USERS`. |
 | `name` | yes | Shown in the admin. |
 | `url` | yes | The live portfolio (for Preview, image thumbnails and the live check). |
+| `localUrl` | no | The portfolio's local dev server (e.g. `http://localhost:5173`). Used instead of `url` under `npm run dev`; ignored on Vercel. |
 | `repo` | yes | GitHub `owner/name`. |
 | `branch` | no | Branch the portfolio's Vercel project deploys. Default `main`. If it requires pull requests, saving fails with a clear message. |
 | `contentPath`, `schemaPath` | no | Defaults `content/portfolio.json`, `content/schema.json`. |
