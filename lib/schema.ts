@@ -16,6 +16,7 @@ export type FieldType =
   | 'toggle'
   | 'select'
   | 'list'
+  | 'multiselect'
   | 'number'
   | 'objectList';
 
@@ -30,9 +31,9 @@ export interface Field {
   wide?: boolean;
   /** asset: which uploads the picker accepts. */
   accept?: 'image' | 'document';
-  /** select: fixed options. */
+  /** select / multiselect: fixed options. */
   options?: { value: string; label: string }[];
-  /** select: options are the ids of another collection's items. */
+  /** select / multiselect: options are the ids of another collection's items. */
   optionsFrom?: { section: string; labelField: string };
   maxLength?: number;
   min?: number;
@@ -139,7 +140,7 @@ export function setPath<T>(obj: T, path: string, value: unknown): T {
 
 /* ---------- Schema sanity check ---------- */
 
-const FIELD_TYPES: FieldType[] = ['text', 'textarea', 'email', 'tel', 'url', 'asset', 'date', 'color', 'toggle', 'select', 'list', 'number', 'objectList'];
+const FIELD_TYPES: FieldType[] = ['text', 'textarea', 'email', 'tel', 'url', 'asset', 'date', 'color', 'toggle', 'select', 'list', 'multiselect', 'number', 'objectList'];
 
 /** Throws with a readable message if a portfolio's schema.json is malformed. */
 export function checkSchema(raw: unknown): Schema {
@@ -178,6 +179,7 @@ function coerce(f: Field, v: unknown): unknown {
       return str(v) === '' || !Number.isFinite(n) ? null : n;
     }
     case 'list':
+    case 'multiselect':
       return Array.isArray(v) ? v.map(str).filter(Boolean) : [];
     case 'objectList':
       return Array.isArray(v) ? v.map((entry) => pickFields(isObj(entry) ? entry : {}, f.fields ?? [])) : [];
@@ -285,6 +287,17 @@ export function validateFields(fields: Field[], value: unknown, content: Content
         }
         break;
       }
+      case 'multiselect': {
+        const list = v as string[];
+        if (list.length > LIMITS.collection) push(f.name, `Pick at most ${LIMITS.collection}.`);
+        // References to another collection may outlive the item (deleted later); the site ignores
+        // unknown ids, so only fixed options are enforced.
+        if (!f.optionsFrom) {
+          const allowed = new Set(selectOptions(f, content, schema).map((o) => o.value));
+          if (list.some((s) => !allowed.has(s))) push(f.name, 'Pick from the options.');
+        }
+        break;
+      }
       case 'objectList': {
         const list = v as unknown[];
         if (list.length > LIMITS.listLength) push(f.name, `Use at most ${LIMITS.listLength} entries.`);
@@ -321,7 +334,7 @@ export function validateFields(fields: Field[], value: unknown, content: Content
   return issues;
 }
 
-/** Options for a select: fixed, or the (non-deleted) items of another collection. */
+/** Options for a select or multiselect: fixed, or the (non-deleted) items of another collection. */
 export function selectOptions(f: Field, content: Content, schema: Schema): { value: string; label: string }[] {
   if (f.optionsFrom) {
     const items = (content[f.optionsFrom.section] as BaseItem[] | undefined) ?? [];

@@ -5,7 +5,13 @@ import type { Content, Issue, Schema } from '../lib/schema';
 export interface SiteInfo {
   id: string;
   name: string;
+  /** The portfolio deployment: preview.html, image thumbnails. */
   url: string;
+  /** Profiles: the public page (default `url`) and the file reporting its live version (default `url`/version.json). */
+  liveUrl?: string;
+  versionUrl?: string;
+  /** This portfolio hosts self-service profiles (admin moderation). */
+  hostsProfiles?: boolean;
 }
 
 export interface PublishedState {
@@ -41,13 +47,13 @@ export const setUnauthorizedHandler = (fn: () => void) => {
   onUnauthorized = fn;
 };
 
-async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, timeoutMs = 30_000): Promise<T> {
+async function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, timeoutMs = 30_000, headers: Record<string, string> = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/api/admin/${path}`, {
       method,
       credentials: 'same-origin',
-      headers: { 'x-portfolio-admin': '1', ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { 'x-portfolio-admin': '1', ...headers, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -94,18 +100,52 @@ export const api = {
   logout: () => call('POST', 'logout', {}),
 };
 
-/** Calls for one portfolio. */
-export function siteApi(siteId: string) {
-  const p = (rest: string) => `sites/${encodeURIComponent(siteId)}/${rest}`;
+/** The calls the editor screens use, against one content file: `prefix` is its route, `headers` its credentials. */
+function contentApi(prefix: string, headers: Record<string, string> = {}) {
+  const p = (rest: string) => `${prefix}/${rest}`;
   return {
-    load: () => call<{ site: SiteInfo; schema: Schema; published: PublishedState }>('GET', p('portfolio')),
+    load: () => call<{ site: SiteInfo; schema: Schema; published: PublishedState }>('GET', p('portfolio'), undefined, 30_000, headers),
     /** Save = publish: validates on the server and commits to the portfolio's repo. */
-    publish: (content: Content, baseSha: string) => call<SaveResponse>('POST', p('publish'), { content, baseSha }, 60_000),
-    versions: () => call<{ versions: Version[] }>('GET', p('versions')),
-    version: (commitSha: string) => call<{ content: Content }>('GET', p(`versions/${commitSha}`)),
-    restore: (commitSha: string, baseSha: string) => call<SaveResponse>('POST', p('restore'), { commitSha, baseSha }, 60_000),
-    upload: (fileName: string, data: string) => call<{ url: string }>('POST', p('upload'), { fileName, data }, 60_000),
+    publish: (content: Content, baseSha: string) => call<SaveResponse>('POST', p('publish'), { content, baseSha }, 60_000, headers),
+    versions: () => call<{ versions: Version[] }>('GET', p('versions'), undefined, 30_000, headers),
+    version: (commitSha: string) => call<{ content: Content }>('GET', p(`versions/${commitSha}`), undefined, 30_000, headers),
+    restore: (commitSha: string, baseSha: string) => call<SaveResponse>('POST', p('restore'), { commitSha, baseSha }, 60_000, headers),
+    upload: (fileName: string, data: string) => call<{ url: string }>('POST', p('upload'), { fileName, data }, 60_000, headers),
   };
 }
 
-export type SiteApi = ReturnType<typeof siteApi>;
+export type SiteApi = ReturnType<typeof contentApi>;
+
+/** Calls for one portfolio. */
+export function siteApi(siteId: string) {
+  const prefix = `sites/${encodeURIComponent(siteId)}`;
+  return {
+    ...contentApi(prefix),
+    profiles: () => call<{ profiles: { slug: string; url: string }[] }>('GET', `${prefix}/profiles`),
+    deleteProfile: (slug: string) => call<{ deleted: true }>('POST', `${prefix}/delete-profile`, { slug }, 60_000),
+  };
+}
+
+/* ---------- Self-service profiles (no sign-in) ---------- */
+
+export type Draft = { site: SiteInfo; schema: Schema; content: Content; suggestedSlug: string };
+export type Created = { slug: string; token: string; site: SiteInfo; published: PublishedState };
+
+export const publicApi = {
+  config: () => call<{ enabled: boolean; hostUrl: string | null; turnstileSiteKey: string | null }>('GET', 'public/config'),
+  slugAvailable: (slug: string) => call<{ available: boolean }>('GET', `public/slug/${encodeURIComponent(slug)}`),
+  /** Reads a resume into draft content; nothing is saved. */
+  parse: (fileName: string, data: string, turnstileToken?: string) => call<Draft>('POST', 'public/parse', { fileName, data, turnstileToken }, 60_000),
+  create: (slug: string, content: Content, resume: { fileName: string; data: string } | null, turnstileToken?: string) =>
+    call<Created>('POST', 'public/profiles', { slug, content, resume, turnstileToken }, 120_000),
+};
+
+/** The owner's calls for one profile, authorized by its secret edit token. */
+export function profileApi(slug: string, token: string) {
+  const prefix = `public/profiles/${encodeURIComponent(slug)}`;
+  const headers = { 'x-profile-token': token };
+  return {
+    ...contentApi(prefix, headers),
+    remove: () => call<{ deleted: true }>('POST', `${prefix}/delete`, {}, 60_000, headers),
+  };
+}

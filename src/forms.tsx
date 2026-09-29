@@ -36,7 +36,7 @@ export function fromForm<T>(obj: T, form: FormValues, fields: Field[]): T {
     const v = form[f.name];
     let value: unknown;
     if (f.type === 'toggle') value = v === true;
-    else if (f.type === 'list') value = lines(v);
+    else if (f.type === 'list' || f.type === 'multiselect') value = lines(v);
     else if (f.type === 'objectList') value = ((v as FormValues[]) ?? []).map((entry) => fromForm({}, entry, f.fields ?? []));
     else if (f.type === 'number') value = String(v).trim() === '' ? null : Number(v);
     else value = String(v ?? '').trim();
@@ -62,10 +62,10 @@ export function issuesByField(issues: Issue[], fields: Field[]): Record<string, 
 
 const ACCEPT = {
   image: '.jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif',
-  document: '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  document: '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 };
 
-function readAsBase64(file: File): Promise<string> {
+export function readAsBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
@@ -114,6 +114,41 @@ type FieldProps = {
   content: Content;
   onChange: (v: FormValue) => void;
 };
+
+/** Checkboxes over a select's options; the value is the chosen ids, one per line. */
+function MultiSelectInput({ field: f, value, error, content, onChange }: Readonly<FieldProps>) {
+  const { schema } = useAdmin();
+  const chosen = new Set(lines(value));
+  const options = selectOptions(f, content, schema);
+  const toggle = (id: string, on: boolean) => {
+    const next = new Set(chosen);
+    if (on) next.add(id);
+    else next.delete(id);
+    // Keep the options' order, so saved files stay stable.
+    onChange(options.map((o) => o.value).filter((v) => next.has(v)).join('\n'));
+  };
+  return (
+    <fieldset className={`adm-field adm-field--wide adm-multiselect ${error ? 'has-error' : ''}`}>
+      <legend className="adm-field__label">
+        {f.label}
+        {f.required && <span className="adm-required" aria-hidden="true"> *</span>}
+      </legend>
+      {options.length === 0 ? (
+        <p className="adm-muted">Nothing to choose from yet.</p>
+      ) : (
+        <div className="adm-multiselect__options">
+          {options.map((o) => (
+            <label key={o.value} className="adm-multiselect__option">
+              <input type="checkbox" checked={chosen.has(o.value)} onChange={(e) => toggle(o.value, e.target.checked)} />
+              <span>{o.label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      {error ? <p className="adm-field__error">{error}</p> : f.hint && <p className="adm-field__hint">{f.hint}</p>}
+    </fieldset>
+  );
+}
 
 /** A repeatable group of sub-fields, e.g. the steps of a process. */
 function ObjectListInput({ field: f, value, error, content, onChange }: Readonly<FieldProps>) {
@@ -176,12 +211,14 @@ const isPreviewable = (url: string, accept?: string) => accept === 'image' && /^
 
 export function FieldInput(props: Readonly<FieldProps>) {
   const { field: f, value, error, content, onChange } = props;
-  const { site, schema } = useAdmin();
+  const { site, schema, draft } = useAdmin();
   const shell = { label: f.label, hint: f.hint, error, required: f.required, wide: f.wide || f.type === 'textarea' };
   const text = typeof value === 'string' ? value : '';
   switch (f.type) {
     case 'objectList':
       return <ObjectListInput {...props} />;
+    case 'multiselect':
+      return <MultiSelectInput {...props} />;
     case 'toggle':
       return <Toggle label={f.label} checked={value === true} onChange={onChange} hint={f.hint} />;
     case 'select':
@@ -218,11 +255,11 @@ export function FieldInput(props: Readonly<FieldProps>) {
           placeholder={f.accept === 'document' ? '/Resume.pdf' : '/photo.jpg'}
           hint={
             <>
-              {f.hint} Upload a file, or enter a site path (/file.jpg) or https:// URL.
+              {f.hint} {draft ? 'You can upload files once your portfolio is published.' : 'Upload a file, or enter a site path (/file.jpg) or https:// URL.'}
               {text && isPreviewable(text, f.accept) && <img className="adm-thumb" src={text.startsWith('/') ? site.url + text : text} alt="" />}
             </>
           }
-          after={<UploadButton accept={f.accept ?? 'image'} onUploaded={onChange} />}
+          after={draft ? undefined : <UploadButton accept={f.accept ?? 'image'} onUploaded={onChange} />}
         />
       );
     case 'date':

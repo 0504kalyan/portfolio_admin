@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import type { BaseItem, CollectionSection, ObjectSection } from '../lib/schema';
 import { CollectionEditor, SectionForm } from './editors';
 import { LiveStatus } from './Layout';
 import { useAdmin } from './store';
-import { formatDate } from './ui';
+import { ApiFailure, siteApi } from './api';
+import { Button, EmptyState, formatDate, useConfirm, useToast } from './ui';
 
 function PageHead({ title, children }: Readonly<{ title: string; children?: ReactNode }>) {
   return (
@@ -75,7 +76,68 @@ export function Dashboard() {
         </ol>
         <p className="adm-muted">Deleting, restoring, hiding and reordering also save straight away. Version History can undo any save.</p>
       </section>
+      {site.hostsProfiles && <ProfilesCard />}
     </>
+  );
+}
+
+/** Portfolios people created from their resumes on this site (/p/<slug>), for moderation. */
+function ProfilesCard() {
+  const { site } = useAdmin();
+  const confirm = useConfirm();
+  const toast = useToast();
+  const [profiles, setProfiles] = useState<{ slug: string; url: string }[] | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState('');
+  const api = siteApi(site.id);
+
+  useEffect(() => {
+    siteApi(site.id)
+      .profiles()
+      .then((r) => setProfiles(r.profiles), (err) => setError(err instanceof ApiFailure ? err.message : 'Could not load the portfolios.'));
+  }, [site.id]);
+
+  const remove = async (slug: string) => {
+    const ok = await confirm({ title: `Delete /p/${slug}?`, message: 'The portfolio, its role pages and its uploads are removed. This cannot be undone here.', confirmLabel: 'Delete', danger: true });
+    if (!ok) return;
+    setBusy(slug);
+    try {
+      await api.deleteProfile(slug);
+      setProfiles((list) => list?.filter((p) => p.slug !== slug) ?? null);
+      toast('success', `/p/${slug} deleted. It disappears after the next deployment.`);
+    } catch (err) {
+      toast('error', err instanceof ApiFailure ? err.message : 'Delete failed.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  return (
+    <section className="adm-card">
+      <h2>Portfolios created from resumes</h2>
+      <p className="adm-muted">
+        Anyone can create one at <a href="/start">/start</a>. They're served by this portfolio at /p/&lt;name&gt;.
+      </p>
+      {error && <p className="adm-field__error">{error}</p>}
+      {profiles && profiles.length === 0 && <EmptyState>None yet.</EmptyState>}
+      {profiles && profiles.length > 0 && (
+        <ul className="adm-list">
+          {profiles.map((p) => (
+            <li key={p.slug} className="adm-row">
+              <div className="adm-row__main">
+                <div className="adm-row__title">/p/{p.slug}</div>
+              </div>
+              <a className="adm-btn adm-btn--secondary adm-btn--sm" href={p.url} target="_blank" rel="noopener noreferrer">
+                View ↗
+              </a>
+              <Button size="sm" variant="danger" busy={busy === p.slug} onClick={() => remove(p.slug)}>
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

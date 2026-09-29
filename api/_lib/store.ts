@@ -1,5 +1,6 @@
 // Content storage, one store per portfolio. Production commits to the portfolio's GitHub repository
 // (which redeploys it); local development can read and write the portfolio's folder directly.
+import { createHash } from 'node:crypto';
 import { checkSchema, type Content, type Schema } from '../../lib/schema.js';
 import { localRoot, useLocalStore, type SiteConfig } from './config.js';
 import { ApiError } from './http.js';
@@ -27,7 +28,21 @@ export interface ContentStore {
   getVersion(commitSha: string): Promise<unknown>;
   /** Stores a file under the portfolio's public uploads folder and returns its site path (/uploads/…). */
   uploadAsset(fileName: string, bytes: Uint8Array): Promise<string>;
+  /** A repo file's text, or null if it doesn't exist. */
+  readText(path: string): Promise<string | null>;
+  /** Names of the files directly inside a repo folder (empty if it doesn't exist). */
+  listDir(path: string): Promise<string[]>;
+  /** Writes (content) and deletes (null) several repo files in one commit, so the site rebuilds once. */
+  commitFiles(files: RepoFile[], message: string): Promise<{ date: string }>;
 }
+
+export type RepoFile = { path: string; content: string | Uint8Array | null };
+
+/** Same algorithm as a git blob SHA, so version tokens can be computed without asking GitHub. */
+export const blobSha = (text: string | Uint8Array) => {
+  const bytes = Buffer.from(text);
+  return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+};
 
 export const conflict = () =>
   new ApiError(409, 'conflict', 'The portfolio was changed elsewhere (another tab or device) since you loaded it. Reload the latest content and try again.');

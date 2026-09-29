@@ -33,6 +33,13 @@ export interface SiteConfig {
   deployHookEnv: string;
   /** Local development only: the portfolio's folder, used when CONTENT_STORE=local. */
   localPath: string;
+  /** This portfolio also hosts self-service profiles at /p/<slug> (from resume uploads). */
+  profiles: boolean;
+  /** Folder of profile content files in the repo (default content/profiles). */
+  profilesDir: string;
+  /** Profiles only: the public page, and the file that reports its live version. */
+  liveUrl?: string;
+  versionUrl?: string;
 }
 
 const SITE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -69,6 +76,8 @@ export function sites(): SiteConfig[] {
       tokenEnv: get('tokenEnv') || 'GITHUB_TOKEN',
       deployHookEnv: get('deployHookEnv'),
       localPath: get('localPath'),
+      profiles: s.profiles === true,
+      profilesDir: (get('profilesDir') || 'content/profiles').replace(/\/+$/, ''),
     };
     if (!SITE_ID.test(site.id)) bad(`site ${i}: id must be lowercase letters, numbers and hyphens`);
     if (!/^https?:\/\//.test(site.url)) bad(`site ${site.id}: url must start with https://`);
@@ -79,6 +88,7 @@ export function sites(): SiteConfig[] {
     return site;
   });
   if (new Set(parsed.map((s) => s.id)).size !== parsed.length) bad('duplicate site ids');
+  if (parsed.filter((s) => s.profiles).length > 1) bad('only one site can have "profiles": true');
   cachedSites = { raw, sites: parsed };
   return parsed;
 }
@@ -104,6 +114,14 @@ export const localRoot = (site: SiteConfig) => {
   if (!site.localPath) throw new ApiError(503, 'not_configured', `Set "localPath" for ${site.name} in SITES to use local storage.`);
   return path.resolve(site.localPath);
 };
+
+/* ---------- Self-service profiles ---------- */
+
+/** The portfolio that hosts self-service profiles, or null when the feature is off. */
+export const profileHost = (): SiteConfig | null => sites().find((s) => s.profiles) ?? null;
+
+/** Cloudflare Turnstile keys. When the secret is set, reading a resume and creating a profile need a passed check. */
+export const turnstile = () => ({ siteKey: env('TURNSTILE_SITE_KEY'), secret: env('TURNSTILE_SECRET_KEY') });
 
 /* ---------- Users ---------- */
 

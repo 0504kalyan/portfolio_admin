@@ -56,6 +56,8 @@ for (const name of ['admin']) {
     format: 'esm',
     target: 'node20',
     outfile: path.join(dir, 'index.mjs'),
+    // CommonJS dependencies (e.g. word-extractor) call require() for Node built-ins, which ESM lacks.
+    banner: { js: "import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);" },
     logLevel: 'warning',
   });
   writeFileSync(

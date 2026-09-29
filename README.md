@@ -32,6 +32,21 @@ The admin is its own app, repository and Vercel project. The portfolios contain 
 - **Version history** is the Git history of the content file. Restoring commits an old version again as a new commit.
 - **Users** can be limited to some portfolios, e.g. Koti signs in and only sees his own.
 
+## Portfolios from resumes (self-service)
+
+Anyone can turn their resume into a portfolio of their own, without an account and without a new app or Vercel project:
+
+1. **`<admin>/start`**: upload a resume (PDF, DOC or DOCX, up to 3 MB). The server extracts its text (`unpdf` for PDFs, `word-extractor` for Word) and fills in the host portfolio's content with plain rules, no AI (`api/_lib/resume.ts`): contact details by pattern, sections by common headings (Summary, Skills, Experience, Education, Projects, Certifications, Achievements), dates and date ranges, labelled project fields (Duration, Technology, Description, Responsibilities), "worked at X from … to …" sentences, and skills grouped by a small dictionary. The name falls back to the file name. It also suggests **roles**, job-based versions such as *Frontend Developer* or *.NET Developer*: each keyword template in `api/_lib/roleTemplates.ts` (or `ROLE_TEMPLATES`) that matches enough of the person's skills becomes a role with its own title, headline, bio and the matching skills, projects and experience. Scanned (image-only) resumes have no text and are refused.
+2. **`<admin>/start/review`**: the draft opens in the normal editor screens (with Preview). Nothing is saved yet; the draft stays in the browser. Resumes are laid out in many ways, so the person checks every section; anything invalid (e.g. a missing name or start date) is listed and must be fixed before publishing.
+3. **Publish**: choose an address. One commit to the host repo adds `content/profiles/<name>.json`, `content/profiles/<name>.owner.json` (the SHA-256 of the edit token, nothing else) and, if chosen, the resume as the CV under `public/uploads/profiles/<name>/`. The host redeploys and serves it at **`<host>/p/<name>`**, with each role at **`<host>/p/<name>/<role>`**.
+4. **`<admin>/edit/<name>#<token>`**: the secret edit link shown once after publishing. It gives the owner the same editor, version history and uploads for their profile only, plus **Delete portfolio**. The token is in the `#fragment`, so it isn't sent in URLs or logged; lose it and the profile can only be changed by an admin.
+
+Admins see every profile on the host's **Dashboard → Portfolios created from resumes**, with Delete for moderation.
+
+**Setup:** add `"profiles": true` to one site in `SITES` (it must have the roles section and `/profiles/*.json` support; `my portfolio` does), and in production set `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` (a free Cloudflare Turnstile widget for the admin's domain). Limits: reading a resume 20 per IP per hour; creating 5 per IP per hour and 200 per day (in function memory, like the sign-in throttle).
+
+**Limits to know:** every publish or save commits to the host repo and triggers a Vercel build, so heavy use counts against the host project's build minutes and deploy limits. Everything a person publishes, including the CV file, is public, as is the host repository if it's public.
+
 ## Local development
 
 Run the admin next to one or both portfolios:
@@ -146,7 +161,7 @@ Then add the site to `SITES`, give the token access to its repo, and add it to t
 }
 ```
 
-- **Field types:** `text`, `textarea`, `email`, `tel`, `url` (http/https only), `asset` (upload or site path; `accept`: `image` / `document`), `date` (`YYYY` or `YYYY-MM`), `color` (`#RRGGBB`), `toggle`, `number` (`min`, `max`), `select` (`options`, or `optionsFrom: { section, labelField }` to pick an item of another collection), `list` (one entry per line; `mustAppearIn` a sibling text field), `objectList` (repeatable group with its own `fields`, e.g. process steps).
+- **Field types:** `text`, `textarea`, `email`, `tel`, `url` (http/https only), `asset` (upload or site path; `accept`: `image` / `document`), `date` (`YYYY` or `YYYY-MM`), `color` (`#RRGGBB`), `toggle`, `number` (`min`, `max`), `select` (`options`, or `optionsFrom: { section, labelField }` to pick an item of another collection), `multiselect` (checkboxes over the same options; saved as a list of ids, e.g. a role's projects), `list` (one entry per line; `mustAppearIn` a sibling text field), `objectList` (repeatable group with its own `fields`, e.g. process steps).
 - **Field options:** `required`, `hint`, `placeholder`, `wide`, `maxLength`, `pattern` + `patternMessage`, `default` (for new items). Dotted names (`project.client`) edit nested objects.
 - **Collections** get `id`, `displayOrder`, `isVisible` and `status` (`active` / `archived` / `deleted`) automatically; the site should show only `active` + visible items, sorted by `displayOrder`. `groupBy` orders items within groups (e.g. skills by a `category` select). `idHint` explains the ID where it matters (URLs, icons).
 - **Pages** can show part of an object section (`"fields": ["about"]`), set a `title`, `description` and `preview` page.
@@ -166,7 +181,12 @@ Then add the site to `SITES`, give the token access to its repo, and add it to t
 | `POST /api/admin/sites/:site/publish` | Save: validate against its schema, commit to its repo |
 | `GET /api/admin/sites/:site/versions`, `/versions/:sha` | Its version list / one version's content |
 | `POST /api/admin/sites/:site/restore` | Commit an old version again as a new version |
-| `POST /api/admin/sites/:site/upload` | Upload JPG/PNG/WebP/GIF/PDF/DOCX (≤3 MB) to its `public/uploads/` |
+| `POST /api/admin/sites/:site/upload` | Upload JPG/PNG/WebP/GIF/PDF/DOC/DOCX (≤3 MB) to its `public/uploads/` |
+| `GET /api/admin/sites/:site/profiles`, `POST …/delete-profile` | Profiles hosted by that site (moderation) |
+| `GET /api/admin/public/config`, `/public/slug/:name` | No sign-in: whether profiles are enabled; whether an address is free |
+| `POST /api/admin/public/parse` | No sign-in: read a resume into draft content with rules (nothing saved) |
+| `POST /api/admin/public/profiles` | No sign-in: publish a new profile; returns its edit token once |
+| `/api/admin/public/profiles/:name/…` | With the `x-profile-token` header: `portfolio`, `publish`, `versions`, `restore`, `upload`, `delete` for that profile only |
 
 Every `/sites/:site/…` call checks the session **and** that the user may edit that site.
 
@@ -175,6 +195,7 @@ Every `/sites/:site/…` call checks the session **and** that the user may edit 
 - GitHub tokens, password hashes and the session secret exist only in this project's server function. The portfolio projects hold no secrets.
 - Passwords are checked against scrypt hashes with constant-time comparison; unknown usernames take the same time as wrong passwords. Sessions are HMAC-signed `__Host-` cookies (`HttpOnly; Secure; SameSite=Strict`, 8 hours) and end when that user's password changes.
 - Per-portfolio access is enforced on the server for every request (403 otherwise).
+- Profile edit tokens are 256-bit random values; only their SHA-256 is stored, compared in constant time. Profile routes can only touch that profile's content file and upload folder. Public endpoints use the same CSRF checks, body limits, content validation and upload signature checks as the admin, plus rate limits and optional Turnstile.
 - Writes need a custom header and a same-origin `Origin` (CSRF). Bodies over 1 MB are rejected.
 - Content is rebuilt from the schema's fields only and validated before any commit. URLs must be `http(s)`, so no `javascript:` links. Uploads are type-checked by file signature, and SVG/HTML are refused.
 - Saves carry the version they started from; GitHub rejects the commit if the file changed since, so newer content is never overwritten silently.
