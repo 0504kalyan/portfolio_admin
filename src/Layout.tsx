@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useBlocker, useLocation, useNavigate } from 'react-router-dom';
 import { ApiFailure, type SiteInfo } from './api';
 import { useAnyFormDirty } from './forms';
@@ -10,6 +10,7 @@ const LIVE_LABELS: Record<LiveState, { text: string; kind: string }> = {
   deploying: { text: 'Updating portfolio…', kind: 'warn' },
   live: { text: 'Portfolio is up to date', kind: 'ok' },
   unknown: { text: "Couldn't confirm the portfolio's version", kind: 'info' },
+  draft: { text: 'Draft, not published yet', kind: 'warn' },
 };
 
 export function LiveStatus() {
@@ -22,15 +23,26 @@ export function LiveStatus() {
   );
 }
 
-export function Layout({ username, sites, onSignOut }: Readonly<{ username: string; sites: SiteInfo[]; onSignOut: () => void }>) {
-  const { busy, conflict, reload, site, schema } = useAdmin();
+/**
+ * The editor shell: menu built from the schema, status bar, conflict dialog. Signed-in admins get the
+ * portfolio switcher and sign-out; profile owners and drafts (no account) pass `base` and `actions` instead.
+ */
+export function Layout({
+  username,
+  sites = [],
+  onSignOut,
+  base: baseOverride,
+  actions,
+  footer,
+}: Readonly<{ username?: string; sites?: SiteInfo[]; onSignOut?: () => void; base?: string; actions?: ReactNode; footer?: ReactNode }>) {
+  const { busy, conflict, reload, site, schema, draft } = useAdmin();
   const anyFormDirty = useAnyFormDirty();
   const confirm = useConfirm();
   const toast = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
-  const base = `/${site.id}`;
+  const base = baseOverride ?? `/${site.id}`;
 
   useEffect(() => setMenuOpen(false), [location.pathname]);
 
@@ -48,7 +60,7 @@ export function Layout({ username, sites, onSignOut }: Readonly<{ username: stri
       const ok = await confirm({ title: 'Sign out?', message: 'A form has unsaved changes that will be lost.', confirmLabel: 'Sign out', cancelLabel: 'Stay', danger: true });
       if (!ok) return;
     }
-    onSignOut();
+    onSignOut?.();
   };
 
   const reloadLatest = async () => {
@@ -74,7 +86,7 @@ export function Layout({ username, sites, onSignOut }: Readonly<{ username: stri
             <label className="adm-nav__heading" htmlFor="adm-site">
               Portfolio
             </label>
-            {sites.length > 1 ? (
+            {sites.length > 1 && onSignOut ? (
               <select id="adm-site" className="adm-site-select" value={site.id} onChange={(e) => navigate(`/${e.target.value}`)}>
                 {sites.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -102,17 +114,24 @@ export function Layout({ username, sites, onSignOut }: Readonly<{ username: stri
               </NavLink>
             ))}
           </div>
-          <div className="adm-nav__group">
-            <p className="adm-nav__heading">History</p>
-            <NavLink to={`${base}/versions`} className="adm-nav__link">
-              Version History
-            </NavLink>
-          </div>
+          {!draft && (
+            <div className="adm-nav__group">
+              <p className="adm-nav__heading">History</p>
+              <NavLink to={`${base}/versions`} className="adm-nav__link">
+                Version History
+              </NavLink>
+            </div>
+          )}
           <div className="adm-nav__footer">
-            <p className="adm-muted">Signed in as {username}</p>
-            <Button size="sm" onClick={signOut}>
-              Sign out
-            </Button>
+            {footer}
+            {onSignOut && (
+              <>
+                <p className="adm-muted">Signed in as {username}</p>
+                <Button size="sm" onClick={signOut}>
+                  Sign out
+                </Button>
+              </>
+            )}
           </div>
         </nav>
       </aside>
@@ -121,9 +140,12 @@ export function Layout({ username, sites, onSignOut }: Readonly<{ username: stri
         <header className="adm-topbar">
           <LiveStatus />
           <div className="adm-topbar__actions">
-            <a className="adm-btn adm-btn--secondary adm-btn--md" href={site.url} target="_blank" rel="noopener noreferrer">
-              View portfolio ↗
-            </a>
+            {actions}
+            {!draft && (
+              <a className="adm-btn adm-btn--secondary adm-btn--md" href={site.liveUrl ?? site.url} target="_blank" rel="noopener noreferrer">
+                View portfolio ↗
+              </a>
+            )}
           </div>
         </header>
 

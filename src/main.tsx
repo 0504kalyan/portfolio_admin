@@ -10,6 +10,7 @@ import { Layout } from './Layout';
 import { LoginForm, LoginScreen } from './Login';
 import { Dashboard, SchemaPage } from './pages';
 import { AdminDataProvider } from './store';
+import { isPublicPath, PublicApp } from './public';
 import { Banner, Button, ConfirmProvider, Dialog, Spinner, ToastProvider } from './ui';
 import { VersionsPage } from './versions';
 import './admin.css';
@@ -151,7 +152,14 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ToastProvider>
       <ConfirmProvider>
-        <Root />
+        {/* /start and /edit/… are the self-service pages: no admin sign-in. */}
+        {isPublicPath(window.location.pathname) ? (
+          <GuardProvider>
+            <PublicApp />
+          </GuardProvider>
+        ) : (
+          <Root />
+        )}
       </ConfirmProvider>
     </ToastProvider>
   </StrictMode>,

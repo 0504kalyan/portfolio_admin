@@ -3,7 +3,11 @@
 import path from 'node:path';
 import { ApiError } from './http.js';
 
-const env = (name: string) => process.env[name]?.trim() ?? '';
+/** Reads an env var, dropping quotes pasted from a .env file (e.g. '[...]' into the Vercel dashboard). */
+const env = (name: string) => {
+  const v = process.env[name]?.trim() ?? '';
+  return /^(['"]).*\1$/s.test(v) ? v.slice(1, -1).trim() : v;
+};
 
 /* ---------- Sites ---------- */
 
@@ -29,6 +33,13 @@ export interface SiteConfig {
   deployHookEnv: string;
   /** Local development only: the portfolio's folder, used when CONTENT_STORE=local. */
   localPath: string;
+  /** This portfolio also hosts self-service profiles at /p/<slug> (from resume uploads). */
+  profiles: boolean;
+  /** Folder of profile content files in the repo (default content/profiles). */
+  profilesDir: string;
+  /** Profiles only: the public page, and the file that reports its live version. */
+  liveUrl?: string;
+  versionUrl?: string;
 }
 
 const SITE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -65,6 +76,8 @@ export function sites(): SiteConfig[] {
       tokenEnv: get('tokenEnv') || 'GITHUB_TOKEN',
       deployHookEnv: get('deployHookEnv'),
       localPath: get('localPath'),
+      profiles: s.profiles === true,
+      profilesDir: (get('profilesDir') || 'content/profiles').replace(/\/+$/, ''),
     };
     if (!SITE_ID.test(site.id)) bad(`site ${i}: id must be lowercase letters, numbers and hyphens`);
     if (!/^https?:\/\//.test(site.url)) bad(`site ${site.id}: url must start with https://`);
@@ -75,6 +88,7 @@ export function sites(): SiteConfig[] {
     return site;
   });
   if (new Set(parsed.map((s) => s.id)).size !== parsed.length) bad('duplicate site ids');
+  if (parsed.filter((s) => s.profiles).length > 1) bad('only one site can have "profiles": true');
   cachedSites = { raw, sites: parsed };
   return parsed;
 }
@@ -101,6 +115,14 @@ export const localRoot = (site: SiteConfig) => {
   return path.resolve(site.localPath);
 };
 
+/* ---------- Self-service profiles ---------- */
+
+/** The portfolio that hosts self-service profiles, or null when the feature is off. */
+export const profileHost = (): SiteConfig | null => sites().find((s) => s.profiles) ?? null;
+
+/** Cloudflare Turnstile keys. When the secret is set, reading a resume and creating a profile need a passed check. */
+export const turnstile = () => ({ siteKey: env('TURNSTILE_SITE_KEY'), secret: env('TURNSTILE_SECRET_KEY') });
+
 /* ---------- Users ---------- */
 
 export interface UserConfig {
@@ -121,13 +143,13 @@ export function users(): UserConfig[] {
       /* fall through */
     }
     console.error('[api] ADMIN_USERS is invalid: expected [{"username","passwordHash","sites":[...]}]');
-    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured correctly on the server.');
+    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured correctly on the server: ADMIN_USERS is not a valid JSON list of users.');
   }
   const username = env('ADMIN_USERNAME');
   const passwordHash = env('ADMIN_PASSWORD_HASH');
   if (!username || !passwordHash) {
     console.error('[api] admin auth is not configured: set ADMIN_USERS, or ADMIN_USERNAME and ADMIN_PASSWORD_HASH');
-    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured on the server yet.');
+    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured on the server yet: set ADMIN_USERS in the environment variables and redeploy.');
   }
   return [{ username, passwordHash, sites: ['*'] }];
 }
@@ -136,7 +158,11 @@ export function sessionSecret(): string {
   const secret = env('SESSION_SECRET');
   if (secret.length < 32) {
     console.error('[api] SESSION_SECRET must be at least 32 characters');
-    throw new ApiError(503, 'not_configured', 'Admin sign-in is not configured on the server yet.');
+    throw new ApiError(
+      503,
+      'not_configured',
+      `Admin sign-in is not configured on the server yet: SESSION_SECRET is ${secret ? 'shorter than 32 characters' : 'not set'}. Set it in the environment variables and redeploy.`,
+    );
   }
   return secret;
 }

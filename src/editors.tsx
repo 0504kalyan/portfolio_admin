@@ -28,12 +28,12 @@ export const LIVE_NOTE = 'The portfolio updates in about 1–2 minutes.';
 
 /** Runs a save and reports the outcome; returns true on success. */
 function useSaveAction() {
-  const { save } = useAdmin();
+  const { save, draft } = useAdmin();
   const toast = useToast();
   return async (fn: (c: Content) => Content, success: string) => {
     try {
       const res = await save(fn);
-      toast('success', res.unchanged ? 'Nothing changed.' : `${success} ${LIVE_NOTE}`);
+      toast('success', res.unchanged ? 'Nothing changed.' : draft ? `${success} It goes live when you publish.` : `${success} ${LIVE_NOTE}`);
       if (res.deployment === 'hook_failed') toast('error', 'Saved, but the deploy hook failed. Redeploy the portfolio from Vercel if it does not update.');
       return true;
     } catch (err) {

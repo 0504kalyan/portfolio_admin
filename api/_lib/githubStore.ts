@@ -3,7 +3,7 @@
 import type { Content, Schema } from '../../lib/schema.js';
 import { githubToken, type SiteConfig } from './config.js';
 import { ApiError } from './http.js';
-import { conflict, parseSchema, serialize, type ContentStore, type Published, type Version } from './store.js';
+import { conflict, parseSchema, serialize, type ContentStore, type Published, type RepoFile, type Version } from './store.js';
 
 type FileResponse = { sha: string; content?: string; encoding?: string; size: number };
 
@@ -82,6 +82,44 @@ export class GitHubStore implements ContentStore {
       throw new ApiError(502, 'storage_rejected', 'GitHub rejected the commit. Check that the token can push to the branch (branch protection may block it).');
     }
     return data;
+  }
+
+  async readText(path: string): Promise<string | null> {
+    return (await this.readFile(path, this.cfg.branch))?.text ?? null;
+  }
+
+  async listDir(path: string): Promise<string[]> {
+    const { status, data } = await this.request<{ type: string; name: string }[] | { type: string }>('GET', this.contentsPath(path, this.cfg.branch));
+    if (status === 404 || !Array.isArray(data)) return [];
+    return data.filter((e) => e.type === 'file').map((e) => e.name);
+  }
+
+  /** One commit via the Git Data API: blobs → tree on top of the branch head → commit → move the branch. */
+  async commitFiles(files: RepoFile[], message: string): Promise<{ date: string }> {
+    const branch = encodeURIComponent(this.cfg.branch);
+    const tree = await Promise.all(
+      files.map(async (f) => {
+        if (f.content === null) return { path: f.path, mode: '100644', type: 'blob', sha: null };
+        const blob = await this.request<{ sha: string }>('POST', '/git/blobs', { content: Buffer.from(f.content).toString('base64'), encoding: 'base64' });
+        if (!blob.data?.sha) throw storageError();
+        return { path: f.path, mode: '100644', type: 'blob', sha: blob.data.sha };
+      }),
+    );
+    // A concurrent commit moves the branch between our read and the update; retry on top of it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ref = await this.request<{ object: { sha: string } }>('GET', `/git/ref/heads/${branch}`);
+      const head = ref.data?.object.sha;
+      const base = head ? await this.request<{ tree: { sha: string } }>('GET', `/git/commits/${head}`) : null;
+      if (!head || !base?.data) throw storageError();
+      const newTree = await this.request<{ sha: string }>('POST', '/git/trees', { base_tree: base.data.tree.sha, tree });
+      if (!newTree.data?.sha) throw storageError();
+      const commit = await this.request<{ sha: string; committer: { date: string } }>('POST', '/git/commits', { message, tree: newTree.data.sha, parents: [head] });
+      if (!commit.data?.sha) throw storageError();
+      const moved = await this.request('PATCH', `/git/refs/heads/${branch}`, { sha: commit.data.sha, force: false });
+      if (moved.status === 200) return { date: commit.data.committer.date };
+      if (moved.status !== 422 && moved.status !== 409) throw storageError();
+    }
+    throw new ApiError(409, 'busy', 'The portfolio is being updated by someone else right now. Please try again in a moment.');
   }
 
   async load(): Promise<{ raw: unknown; sha: string; updatedAt: string | null; schema: Schema }> {
