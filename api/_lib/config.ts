@@ -6,7 +6,7 @@ import { ApiError } from './http.js';
 /** Reads an env var, dropping quotes pasted from a .env file (e.g. '[...]' into the Vercel dashboard). */
 const env = (name: string) => {
   const v = process.env[name]?.trim() ?? '';
-  return /^(['"]).*$/s.test(v) ? v.slice(1, -1).trim() : v;
+  return /^(['"]).*\1$/s.test(v) ? v.slice(1, -1).trim() : v;
 };
 
 /* ---------- Sites ---------- */
