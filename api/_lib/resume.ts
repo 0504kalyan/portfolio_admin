@@ -497,6 +497,9 @@ export async function readResume(schema: Schema, fileName: string, bytes: Uint8A
 
   let content: Content = {};
   const set = (path: string, value: unknown) => (content = setPath(content, path, value));
+  const recentProject = projects
+    .slice()
+    .sort((a, b) => Number(b.isCurrent) - Number(a.isCurrent) || (b.endDate || b.startDate).localeCompare(a.endDate || a.startDate))[0]?.title ?? '';
   set('seo', { title: name ? `${name} · ${title}` : title, description: (summary || `${name} — ${title}.`).slice(0, 160) });
   set('profile', {
     name,
@@ -506,7 +509,7 @@ export async function readResume(schema: Schema, fileName: string, bytes: Uint8A
     email: c.email,
     phone: c.phone,
     yearsOfExperience: years,
-    currentProject: projects.find((p) => p.isCurrent)?.title ?? '',
+    recentProject,
     shortBio: clip(sentences(summary)[0] ?? '', 200),
     about: summary ? paragraphs(summary) : [`${name} is a ${title}.`],
     techStack: topSkills,

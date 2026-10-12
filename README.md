@@ -44,6 +44,8 @@ These are two different editable areas:
 
 The portfolio's content file is the source of truth. Locally, the admin writes it under the configured `localPath`; keep the portfolio dev server running to see the page and generated CV update. In production, saving commits the content to GitHub and triggers the portfolio's deployment; the updated site and generated CV become available when that deployment finishes (usually 1–2 minutes). If `resumeAuto` is disabled, the CV download points to manually uploaded files, which do not change when experience fields are edited.
 
+The Home hero's status field is **Most recent project**, not **Currently working on**. This is intended for portfolios whose most recent project is already complete. Resume parsing chooses the most recent project by its dates (favoring a current project when one is explicitly identified).
+
 ## Portfolios from resumes (self-service)
 
 Anyone can turn their resume into a portfolio of their own, without an account and without a new app or Vercel project:
