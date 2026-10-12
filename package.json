@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/build-vercel.mjs",
-    "hash-password": "node scripts/hash-password.mjs"
+    "hash-password": "node scripts/hash-password.mjs",
+    "validate-local": "node scripts/validate-local.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",

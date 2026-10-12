@@ -58,6 +58,8 @@ export interface DateRangeRule {
   current?: string;
   /** Require an end date unless `current` is on. */
   requireEnd?: boolean;
+  /** Completed items require an end date; incomplete items must not have one. */
+  completed?: string;
 }
 
 export interface ObjectSection {
@@ -353,7 +355,10 @@ export function validateItem(section: CollectionSection, item: BaseItem, content
     const start = String(item[rule.start] ?? '');
     const end = String(item[rule.end] ?? '');
     const current = rule.current ? item[rule.current] === true : false;
-    if (rule.requireEnd && !current && !end) issues.push({ path: rule.end, message: 'Set an end date, or mark this as current.' });
+    const completed = rule.completed ? item[rule.completed] === true : false;
+    if (rule.completed && completed && !end) issues.push({ path: rule.end, message: 'Set an end date for completed work.' });
+    if (rule.completed && !completed && end) issues.push({ path: rule.end, message: 'Clear the end date or mark the work as completed.' });
+    if (rule.requireEnd && !rule.completed && !current && !end) issues.push({ path: rule.end, message: 'Set an end date, or mark this as current.' });
     if (!current && start && end && DATE_PATTERN.test(start) && DATE_PATTERN.test(end) && dateKey(start) > dateKey(end)) {
       issues.push({ path: rule.end, message: 'End date must be on or after the start date.' });
     }
