@@ -32,6 +32,18 @@ The admin is its own app, repository and Vercel project. The portfolios contain 
 - **Version history** is the Git history of the content file. Restoring commits an old version again as a new commit.
 - **Users** can be limited to some portfolios, e.g. Koti signs in and only sees his own.
 
+## Editing the About text and work experience
+
+These are two different editable areas:
+
+- The introduction paragraphs in the screenshot ("Hello, I'm…" and the bio text) are edited in **Admin → About**. They come from `profile.about`.
+- To keep years-of-experience text in sync with the Home/About cards and generated CV, use the `{{yearsOfExperience}}` placeholder in an About paragraph. It is replaced with **Admin → Profile → Years of experience** wherever that paragraph is displayed or included in the generated CV.
+- Job history is edited in **Admin → Experience**. Add or edit the company, client, position, location, dates, description and technologies there. The same active, visible entries render on the portfolio's **About** timeline and **Works → work-experience** section.
+- Each experience has a **Completed** checkbox in the admin. Checked entries require an end date and show a filled square with a checkmark on the About timeline; unchecked entries leave the end date empty and show an empty square. The status words are not displayed on the portfolio or in the CV.
+- When `profile.resumeAuto` is enabled, the portfolio generates both PDF and Word CVs from that same content. Work descriptions, locations and technologies are included in the generated CV.
+
+The portfolio's content file is the source of truth. Locally, the admin writes it under the configured `localPath`; keep the portfolio dev server running to see the page and generated CV update. In production, saving commits the content to GitHub and triggers the portfolio's deployment; the updated site and generated CV become available when that deployment finishes (usually 1–2 minutes). If `resumeAuto` is disabled, the CV download points to manually uploaded files, which do not change when experience fields are edited.
+
 ## Portfolios from resumes (self-service)
 
 Anyone can turn their resume into a portfolio of their own, without an account and without a new app or Vercel project:
@@ -49,6 +61,12 @@ Admins see every profile on the host's **Dashboard → Portfolios created from r
 
 ## Local development
 
+Use the local validation script before starting the admin:
+
+```bash
+npm run validate-local
+```
+
 Run the admin next to one or both portfolios:
 
 ```bash
@@ -63,7 +81,57 @@ npm run hash-password        # once per user; paste each hash into ADMIN_USERS, 
 npm run dev                  # http://localhost:5174
 ```
 
-In `.env.local`, keep `CONTENT_STORE=local`. Each site's `localUrl` (`http://localhost:5173`, `http://localhost:5175`) is used instead of `url` while running locally; on Vercel `localUrl` is ignored and the live `url` is used, so the same `SITES` value works in both places. Saving then writes that portfolio's `content/portfolio.json` directly (via `localPath`), and its dev server reloads with the change. Version snapshots go to the portfolio's git-ignored `.cms/` folder. The portfolios' dev servers accept previews from `http://localhost:5174` automatically.
+Local authentication is configured separately from Vercel. If the login API returns **"Admin sign-in is not configured on the server yet"**, the admin server did not load `ADMIN_USERS` (or `ADMIN_USERNAME` and `ADMIN_PASSWORD_HASH`) from `.env.local`; deployed credentials are not available to the local server. Generate a hash locally with `npm run hash-password`, then replace the sample user in `.env.local` with that hash and set `SESSION_SECRET` to the generated secret. Do not put a plaintext password in the env file. Restart `npm run dev` after changing the file.
+
+Use this exact local checklist:
+
+```bash
+# Terminal 1: start the portfolio first
+cd "../PortFolio"
+npm run dev
+
+# Terminal 2: configure and start the admin
+cd "../portfolio_admin"
+cp .env.example .env.local  # first-time setup only; do not overwrite existing credentials
+npm run hash-password      # first-time setup, or to change the password
+npm run validate-local
+npm run dev
+```
+
+After generating a password hash, replace the example auth values in `.env.local` with the generated values before starting Vite. If `.env.local` already exists, do not copy over it; keep its configured credentials and just run `npm run validate-local`.
+
+`validate-local` verifies that:
+- `.env.local` exists and has `SESSION_SECRET` (32+ chars),
+- exactly one of `ADMIN_USERS` or `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH` is configured,
+- `CONTENT_STORE=local`,
+- every site in `SITES` has a valid `localPath` and that folder exists,
+- every site has a `localUrl` and its portfolio dev server responds there.
+
+In `.env.local`, keep `CONTENT_STORE=local`. Each site's `localUrl` (`http://localhost:5173`, `http://localhost:5175`) is used instead of `url` while running locally; on Vercel `localUrl` is ignored and the live `url` is used, so the same `SITES` value works in both places. Make sure each `localPath` points to the corresponding portfolio folder on your machine (for example, `../PortFolio` if that folder is beside `portfolio_admin`). Saving then writes that portfolio's `content/portfolio.json` directly, and its dev server reloads with the change. Version snapshots go to the portfolio's git-ignored `.cms/` folder. The portfolios' dev servers accept previews from `http://localhost:5174` automatically.
+
+## Dynamic updates: admin → portfolio app → resume
+
+The main challenge in local development is making the admin write to the portfolio's real source file and ensuring the portfolio re-renders from that file immediately.
+
+### What works
+- The admin saves to `content/portfolio.json` on the local portfolio folder via `localPath`.
+- The portfolio's Vite dev server watches that JSON file and refreshes the page automatically.
+- The portfolio's `resume` generation uses the same content when `resumeAuto` is enabled, so the CV downloads also change on the next build or dev reload.
+- `content/portfolio.json` is the single source of truth; the portfolio app and generated resume are both derived from it.
+
+### Challenges to expect
+- If `.env.local` is missing, the admin cannot authenticate locally even though the deployed site can.
+- If `localPath` is wrong, the admin writes to the wrong folder or fails to update the app.
+- If the portfolio dev server is not running, you will not see the UI update immediately.
+- If the portfolio's Vite config does not rebuild the resume files for the generated CV, the downloads appear stale.
+
+### Local dev recommendation
+- Keep the admin app and the portfolio app in sibling folders.
+- Use `CONTENT_STORE=local` and the correct `localPath` for the portfolio repo.
+- Start both the portfolio app and the admin app before making edits.
+- Keep `resumeAuto` enabled for the portfolio if you want the CV to regenerate automatically from `content/portfolio.json`.
+
+The generated resume routes are served by the portfolio app (for example `/Resume-Pavan-Kalyan-Kama.pdf` and `/Resume-Pavan-Kalyan-Kama.docx`), so each content save repopulates them from the latest portfolio data.
 
 ## Deploying (one-time)
 
@@ -201,3 +269,16 @@ Every `/sites/:site/…` call checks the session **and** that the user may edit 
 - Saves carry the version they started from; GitHub rejects the commit if the file changed since, so newer content is never overwritten silently.
 - Failed sign-ins are limited to 5 per IP (30 overall) per 15 minutes, in function memory (resets when Vercel starts a new instance). For a hard limit, add a Vercel Firewall rule on `/api/admin/login`.
 - The admin is `noindex` and can't be framed. Error messages in the UI never include GitHub responses, tokens or stack traces (those go to the function logs).
+
+## Local login and dynamic reflection checklist
+
+If sign-in fails locally, check these in order:
+
+1. `portfolio_admin/.env.local` exists and contains a valid `SESSION_SECRET`.
+2. One of these is set: `ADMIN_USERS` or `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`.
+3. `CONTENT_STORE=local` is set.
+4. `SITES` contains a valid `localPath` to the actual portfolio folder.
+5. The portfolio app is running locally (`npm run dev` in the portfolio repo).
+6. The admin is restarted after any `.env.local` change.
+
+This project is designed so admin edits flow to the portfolio app dynamically through the portfolio's local content file, and the generated resume files are rebuilt from that same source.
