@@ -1,6 +1,6 @@
 # Portfolio Admin
 
-One admin app for several portfolios. It currently manages:
+One admin app for several portfolios. The deployed admin is at <https://portfolioadmin-omega.vercel.app/>. It currently manages:
 
 | Portfolio | Live site | Repository |
 |---|---|---|
@@ -105,11 +105,26 @@ After generating a password hash, replace the example auth values in `.env.local
 `validate-local` verifies that:
 - `.env.local` exists and has `SESSION_SECRET` (32+ chars),
 - exactly one of `ADMIN_USERS` or `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH` is configured,
-- `CONTENT_STORE=local`,
-- every site in `SITES` has a valid `localPath` and that folder exists,
-- every site has a `localUrl` and its portfolio dev server responds there.
+- `CONTENT_STORE` is `local` or `github` (defaults to `github` if omitted),
+- for `local`, every site has an existing `localPath`, a valid `localUrl`, and a responding portfolio dev server,
+- for `github`, every site has a valid repository and its configured GitHub token is present.
 
-In `.env.local`, keep `CONTENT_STORE=local`. Each site's `localUrl` (`http://localhost:5173`, `http://localhost:5175`) is used instead of `url` while running locally; on Vercel `localUrl` is ignored and the live `url` is used, so the same `SITES` value works in both places. Make sure each `localPath` points to the corresponding portfolio folder on your machine (for example, `../PortFolio` if that folder is beside `portfolio_admin`). Saving then writes that portfolio's `content/portfolio.json` directly, and its dev server reloads with the change. Version snapshots go to the portfolio's git-ignored `.cms/` folder. The portfolios' dev servers accept previews from `http://localhost:5174` automatically.
+For safe local-only editing, use `CONTENT_STORE=local`. Each site's `localUrl` (`http://localhost:5173`, `http://localhost:5175`) is used instead of `url` while running locally. Make `localPath` point to the corresponding portfolio folder (for example, `../PortFolio` if it is beside `portfolio_admin`). Saving writes that portfolio's `content/portfolio.json` directly and the dev server reloads it. These saves do **not** reach GitHub or the deployed URLs. Version snapshots go to the portfolio's git-ignored `.cms/` folder.
+
+### Publish from the local admin to the deployed portfolio
+
+To make a Save in the locally running admin update the public site:
+
+1. In `portfolio_admin/.env.local`, change `CONTENT_STORE=local` to `CONTENT_STORE=github`.
+2. Set `GITHUB_TOKEN` to a fine-grained GitHub token with **Contents: Read and write** access to the portfolio repository. Keep it only in `.env.local`; never put it in a `VITE_` variable or commit it.
+3. Keep each site's production `url` and `repo` in `SITES`. Set `branch` to the branch that triggers the portfolio's **production** deployment (normally `main`). `localUrl` can remain set for local previews; `localPath` is not used in GitHub mode.
+4. Restart the admin and run `npm run validate-local`. A Save then commits to GitHub, and Vercel deploys it according to that repository's production-branch settings. Wait for the admin's **Portfolio is up to date** status.
+
+This mode changes live content. Use `CONTENT_STORE=local` when you only want a local preview. The deployed admin already uses GitHub storage and does not depend on the local `.env.local` file.
+
+`npm run dev` for either app is still a local development server: source-code changes (React, CSS, Vite config, etc.) are not deployed by saving content. Commit and push those code changes, then merge them into the portfolio's configured production branch for Vercel to build them. A feature branch that has not been merged will not update the production URL.
+
+For either mode, restart the admin after changing `.env.local`. The portfolios' dev servers accept previews from `http://localhost:5174` automatically.
 
 ## Dynamic updates: admin → portfolio app → resume
 
@@ -129,7 +144,7 @@ The main challenge in local development is making the admin write to the portfol
 
 ### Local dev recommendation
 - Keep the admin app and the portfolio app in sibling folders.
-- Use `CONTENT_STORE=local` and the correct `localPath` for the portfolio repo.
+- Use `CONTENT_STORE=local` for isolated local editing, or `CONTENT_STORE=github` when local admin saves should publish live.
 - Start both the portfolio app and the admin app before making edits.
 - Keep `resumeAuto` enabled for the portfolio if you want the CV to regenerate automatically from `content/portfolio.json`.
 
@@ -272,15 +287,13 @@ Every `/sites/:site/…` call checks the session **and** that the user may edit 
 - Failed sign-ins are limited to 5 per IP (30 overall) per 15 minutes, in function memory (resets when Vercel starts a new instance). For a hard limit, add a Vercel Firewall rule on `/api/admin/login`.
 - The admin is `noindex` and can't be framed. Error messages in the UI never include GitHub responses, tokens or stack traces (those go to the function logs).
 
-## Local login and dynamic reflection checklist
+## Local-only content reflection checklist
 
-If sign-in fails locally, check these in order:
+If an edit does not appear in the locally running portfolio while using `CONTENT_STORE=local`, check:
 
-1. `portfolio_admin/.env.local` exists and contains a valid `SESSION_SECRET`.
-2. One of these is set: `ADMIN_USERS` or `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`.
-3. `CONTENT_STORE=local` is set.
-4. `SITES` contains a valid `localPath` to the actual portfolio folder.
-5. The portfolio app is running locally (`npm run dev` in the portfolio repo).
-6. The admin is restarted after any `.env.local` change.
+1. `portfolio_admin/.env.local` exists, has a valid `SESSION_SECRET`, and configures either `ADMIN_USERS` or `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH`.
+2. `CONTENT_STORE=local` is set and `SITES` contains the correct `localPath` for the portfolio folder.
+3. The portfolio app is running locally (`npm run dev` in the portfolio repo).
+4. The admin was restarted after any `.env.local` change.
 
-This project is designed so admin edits flow to the portfolio app dynamically through the portfolio's local content file, and the generated resume files are rebuilt from that same source.
+In local mode, admin edits flow through the portfolio's local content file and the generated resume files use that same source. This does not publish to GitHub; use the GitHub mode above to deploy content changes.

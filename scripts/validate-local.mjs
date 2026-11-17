@@ -19,18 +19,29 @@ function readEnvFile(file) {
   }
   const raw = fs.readFileSync(file, 'utf8');
   const out = {};
-  for (const line of raw.split(/\r?\n/)) {
+  const lines = raw.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
     if (!match) continue;
-    const [, key, value] = match;
+    const [, key] = match;
+    let value = match[2];
+    const quote = value[0];
+    if ((quote === "'" || quote === '"') && !value.endsWith(quote)) {
+      while (++i < lines.length) {
+        value += `\n${lines[i]}`;
+        if (lines[i].trimEnd().endsWith(quote)) break;
+      }
+    }
     out[key] = trimQuotes(value);
   }
   return out;
 }
 
 const env = readEnvFile(envPath);
-if (!env.CONTENT_STORE || env.CONTENT_STORE !== 'local') {
-  failures.push('Set CONTENT_STORE=local in .env.local for local development.');
+const contentStore = env.CONTENT_STORE || 'github';
+if (contentStore !== 'local' && contentStore !== 'github') {
+  failures.push('CONTENT_STORE must be either "local" or "github".');
 }
 
 if (!env.SESSION_SECRET || env.SESSION_SECRET.length < 32) {
@@ -44,7 +55,7 @@ if (!hasAdminUsers && !hasSingleAdmin) {
 }
 
 if (!env.SITES || !env.SITES.trim()) {
-  failures.push('SITES is missing. Add the portfolio list with each site\'s localUrl and localPath.');
+  failures.push('SITES is missing. Add the portfolios with their production url and repository.');
 } else {
   try {
     const sites = JSON.parse(env.SITES);
@@ -52,19 +63,36 @@ if (!env.SITES || !env.SITES.trim()) {
       failures.push('SITES must be a non-empty JSON array.');
     } else {
       for (const site of sites) {
+        const id = site.id || 'unknown';
         if (!site.id) failures.push('Each SITES item needs an id.');
-        if (!site.localUrl || !/^https?:\/\//.test(site.localUrl)) {
-          failures.push(`Site ${site.id || 'unknown'} needs a valid localUrl for live local updates.`);
+        if (!site.url || !/^https?:\/\//.test(site.url)) {
+          failures.push(`Site ${id} needs a valid production url.`);
+        }
+        if (contentStore === 'local') {
+          if (!site.localUrl || !/^https?:\/\//.test(site.localUrl)) {
+            failures.push(`Site ${id} needs a valid localUrl when CONTENT_STORE=local.`);
+          } else {
+            localSites.push({ id, url: site.localUrl.replace(/\/+$/, '') });
+          }
+          if (!site.localPath) {
+            failures.push(`Site ${id} is missing localPath. Set it to the local portfolio folder.`);
+          } else {
+            const localPath = path.resolve(root, site.localPath);
+            if (!fs.existsSync(localPath)) {
+              failures.push(`localPath for ${id} does not exist: ${localPath}`);
+            }
+          }
         } else {
-          localSites.push({ id: site.id || 'unknown', url: site.localUrl.replace(/\/+$/, '') });
-        }
-        if (!site.localPath) {
-          failures.push(`Site ${site.id || 'unknown'} is missing localPath. Set it to the local portfolio folder.`);
-          continue;
-        }
-        const localPath = path.resolve(root, site.localPath);
-        if (!fs.existsSync(localPath)) {
-          failures.push(`localPath for ${site.id} does not exist: ${localPath}`);
+          if (!site.repo || !/^[\w.-]+\/[\w.-]+$/.test(site.repo)) {
+            failures.push(`Site ${id} needs a valid GitHub repo (owner/name) when CONTENT_STORE=github.`);
+          }
+          const tokenName = site.tokenEnv || 'GITHUB_TOKEN';
+          if (!env[tokenName]) {
+            failures.push(`${tokenName} is required for site ${id} when CONTENT_STORE=github.`);
+          }
+          if (site.localUrl && !/^https?:\/\//.test(site.localUrl)) {
+            failures.push(`Site ${id} has an invalid localUrl.`);
+          }
         }
       }
     }
@@ -101,4 +129,7 @@ if (failures.length) {
 console.log('Local config OK.');
 console.log('Auth: ' + (hasAdminUsers ? 'ADMIN_USERS configured' : 'ADMIN_USERNAME + ADMIN_PASSWORD_HASH configured'));
 console.log('Portfolio sites: ' + (JSON.parse(env.SITES) || []).map((s) => s.id).join(', '));
+console.log(contentStore === 'local'
+  ? 'Content store: local only; saves do not deploy to the public sites.'
+  : 'Content store: GitHub; saves commit to the configured portfolio branches.');
 for (const site of localSites) console.log(`Portfolio ${site.id} responds at ${site.url}.`);
