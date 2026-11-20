@@ -163,16 +163,18 @@ The generated resume routes are served by the portfolio app (for example `/Resum
 
    | Variable | Value |
    |---|---|
-   | `SITES` | JSON list of portfolios (see below) with the **production** URLs |
-   | `GITHUB_TOKEN` | the token from step 2 |
+   | `SITES` | Optional JSON overrides for the built-in Pavan and Koti portfolios; add the **production** URLs when overriding |
+   | `GITHUB_TOKEN` | the token from step 2, with write access to both portfolio repositories |
    | `ADMIN_USERS` | JSON list of users (see below) |
    | `SESSION_SECRET` | 32+ random characters (printed by `hash-password`) |
 
-   Then redeploy.
+   The Admin includes both Pavan and Koti by default, even if an existing `SITES` variable lists only Pavan. Keep your existing sign-in settings; an account must have access to `koti` in `ADMIN_USERS`, or use the existing single-admin account (which can access all configured sites). After deploying this code, redeploy the Admin once.
 6. **On each portfolio's Vercel project**, add `VITE_ADMIN_ORIGIN = https://<your-admin>.vercel.app` (no trailing slash) and redeploy it. This isn't secret; it only allows the admin's Preview to send content to that portfolio's `preview.html`.
 7. **Check:** `https://<your-admin>.vercel.app/api/admin/session` returns JSON. Sign in at `https://<your-admin>.vercel.app`.
 
 ### `SITES`
+
+Pavan and Koti are built in, so `SITES` can be omitted. Define it only to override their settings or add another portfolio; entries merge by `id` and do not remove either built-in site.
 
 ```json
 [
@@ -195,6 +197,8 @@ The generated resume routes are served by the portfolio app (for example `/Resum
 | `deployHookEnv` | no | Env var with a Vercel Deploy Hook URL, only for a portfolio project that isn't connected to its GitHub repo. |
 | `localPath` | dev only | The portfolio's folder for `CONTENT_STORE=local`. |
 
+Both portfolios use `GITHUB_TOKEN` by default. That token must have Contents read/write permission on both repositories; set a per-site `tokenEnv` if they use separate tokens.
+
 ### `ADMIN_USERS`
 
 ```json
@@ -205,6 +209,7 @@ The generated resume routes are served by the portfolio app (for example `/Resum
 ```
 
 `"sites": ["*"]` gives access to every portfolio; otherwise list site ids. Access is enforced on the server for every request. To change a password, generate a new hash, update the variable and redeploy; that user's sessions end. For a single admin you can use `ADMIN_USERNAME` + `ADMIN_PASSWORD_HASH` instead (access to every site).
+
 
 ## Adding another portfolio
 
