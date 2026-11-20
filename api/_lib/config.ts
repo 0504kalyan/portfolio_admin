@@ -45,9 +45,30 @@ export interface SiteConfig {
 const SITE_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const REPO = /^[\w.-]+\/[\w.-]+$/;
 
+/** The built-in portfolios stay available even when a deployment's SITES lists only one. */
+const BUILTIN_SITES: Record<string, Record<string, unknown>> = {
+  pavan: {
+    id: 'pavan',
+    name: 'Pavan Kalyan Kama',
+    url: 'https://portfolio-of-pavan.vercel.app',
+    localUrl: 'http://localhost:5173',
+    repo: '0504kalyan/PortFolio',
+    localPath: '../PortFolio',
+    profiles: true,
+  },
+  koti: {
+    id: 'koti',
+    name: 'Koteswara Rao Doppalapudi',
+    url: 'https://koti-potifoli.vercel.app',
+    localUrl: 'http://localhost:5175',
+    repo: '0504kalyan/koti_potifoli',
+    localPath: '../koti_potifoli',
+  },
+};
+
 let cachedSites: { raw: string; sites: SiteConfig[] } | null = null;
 
-/** Parses SITES (a JSON array). Misconfiguration is logged in detail and reported generically. */
+/** Parses site overrides and merges them into the built-in portfolios. */
 export function sites(): SiteConfig[] {
   const raw = env('SITES');
   if (cachedSites?.raw === raw) return cachedSites.sites;
@@ -55,14 +76,31 @@ export function sites(): SiteConfig[] {
     console.error(`[api] SITES is invalid: ${why}`);
     throw new ApiError(503, 'not_configured', 'The list of portfolios is not configured correctly on the server.');
   };
-  let list: unknown;
-  try {
-    list = JSON.parse(raw || '[]');
-  } catch {
-    bad('not valid JSON');
+  let overrides: unknown[] = [];
+  if (raw) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed) || !parsed.length) bad('expected a non-empty JSON array');
+      overrides = parsed as unknown[];
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      bad('not valid JSON');
+    }
   }
-  if (!Array.isArray(list) || !list.length) bad('expected a non-empty JSON array');
-  const parsed = (list as Record<string, unknown>[]).map((s, i) => {
+
+  const configured = new Map(Object.entries(BUILTIN_SITES));
+  const overrideIds = new Set<string>();
+  for (const override of overrides) {
+    if (!override || typeof override !== 'object' || Array.isArray(override)) bad('each site must be an object');
+    const site = override as Record<string, unknown>;
+    const id = typeof site.id === 'string' ? site.id.trim() : '';
+    if (!id) bad('each site needs an id');
+    if (overrideIds.has(id)) bad(`duplicate site id "${id}"`);
+    overrideIds.add(id);
+    configured.set(id, { ...configured.get(id), ...site });
+  }
+
+  const parsed = [...configured.values()].map((s, i) => {
     const get = (k: string) => (typeof s[k] === 'string' ? (s[k] as string).trim() : '');
     const site: SiteConfig = {
       id: get('id'),
