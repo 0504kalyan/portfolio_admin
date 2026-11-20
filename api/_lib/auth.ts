@@ -22,7 +22,7 @@ export async function hashPassword(password: string): Promise<string> {
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, N, r, p, saltHex, hashHex] = stored.split(':');
   if (scheme !== 'scrypt' || !saltHex || !hashHex) {
-    console.error('[api] a password hash has the wrong format; generate it with `npm run hash-password`');
+    console.error('[api] a configured password hash has the wrong format; check ADMIN_USERS or ADMIN_PASSWORD_HASH');
     return false;
   }
   const expected = Buffer.from(hashHex, 'hex');
